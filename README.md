@@ -25,5 +25,6 @@ open browser and go to http://localhost:3000
 ## PM2
 
 ```
-pm2 start src/bin/www.ts --name MyServerName
+npx tsc
+pm2 start dist/bin/www.js --name MyServerName
 ```
