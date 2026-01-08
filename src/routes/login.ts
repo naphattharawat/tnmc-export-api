@@ -23,17 +23,17 @@ router.post('/', async (req: Request, res: Response) => {
     let rs: any = await loginModel.login(db, username, encPassword);
     if (rs.length) {
       let payload = {
-        fullname: `${rs[0].first_name} ${rs[0].last_name}`,
+        name: rs[0].name,
         id: rs[0].user_id,
       }
       let token = jwt.sign(payload);
-      res.send({ ok: true, token: token, code: HttpStatus.OK });
+      res.send({ ok: true, token: token,  user: payload , code: HttpStatus.OK });
     } else {
-      res.send({ ok: false, error: 'Login failed!', code: HttpStatus.UNAUTHORIZED });
-    }
+  res.send({ ok: false, error: 'Login failed!', code: HttpStatus.UNAUTHORIZED });
+}
   } catch (error) {
-    res.send({ ok: false, error: error.message, code: HttpStatus.INTERNAL_SERVER_ERROR });
-  }
+  res.send({ ok: false, error: error.message, code: HttpStatus.INTERNAL_SERVER_ERROR });
+}
 });
 
 export default router;
