@@ -10,6 +10,7 @@ import * as ejs from 'ejs';
 import * as HttpStatus from 'http-status-codes';
 import * as express from 'express';
 import * as cors from 'cors';
+import chalk from 'chalk';
 
 import { Router, Request, Response, NextFunction } from 'express';
 import { Jwt } from './models/jwt';
@@ -37,6 +38,35 @@ app.use(express.static(path.join(__dirname, '../public')));
 
 app.use(cors());
 
+// logging helpers middleware: attach color helpers and logMessage to req and res.locals
+app.use((req: Request, res: Response, next: NextFunction) => {
+  // color helpers (เดิม)
+  const purpleLog = (msg: string) => chalk.hex('#9402e8').bold(msg);
+  const bluelog = (msg: string) => chalk.hex('#7cfced').bold(msg);
+  const greenlog = (msg: string) => chalk.hex('#00fb58ff').bold(msg);
+  const orangelog = (msg: string) => chalk.hex('#e86202').bold(msg);
+  const redlog = (msg: string) => chalk.hex('#e80202').bold(msg);
+
+  // logMessage แบบรับสี (ใหม่)
+  const logMessage = (taskId: string, message: string, color: 'purple' | 'blue' | 'red' | 'green' | 'orange' = 'blue') => {
+    const now = new Date();
+    const timestamp = now.toTimeString().split(' ')[0] + `.${now.getMilliseconds().toString().padStart(3, '0')}`;
+    const colorFn = color === 'purple' ? purpleLog : color === 'orange' ? orangelog : color === 'red' ? redlog : color == 'green' ? greenlog : bluelog;
+    console.log(`${timestamp} ${chalk.gray('|')} ${colorFn(taskId)} | ${message}`);
+  };
+
+  // attach ทั้งบน req และ res.locals (เหมือนเดิม)
+  (req as any).purpleLog = purpleLog;
+  (req as any).bluelog = bluelog;
+  (req as any).orangelog = orangelog;
+  (req as any).redlog = redlog;
+  (req as any).greenlog = greenlog;
+  (req as any).logMessage = logMessage;
+  (res.locals as any).logMessage = logMessage;
+
+  next();
+});
+
 import { Knex, knex } from 'knex'
 let connection: Knex.MySqlConnectionConfig = {
   host: process.env.DB_HOST,
@@ -62,8 +92,33 @@ let db = require('knex')({
   },
 });
 
+let connectionMSSQL: Knex.MySqlConnectionConfig = {
+  host: process.env.DB_MSSQL_HOST,
+  port: +process.env.DB_MSSQL_PORT,
+  database: process.env.DB_MSSQL_NAME,
+  user: process.env.DB_MSSQL_USER,
+  password: process.env.DB_MSSQL_PASSWORD,
+  multipleStatements: true,
+  debug: false
+}
+
+let dbmssql = require('knex')({
+  client: process.env.DB_MSSQL_TYPE,
+  connection: connectionMSSQL,
+  pool: {
+    min: 0,
+    max: 100,
+    afterCreate: (conn, done) => {
+      conn.query('SET NAMES utf8', (err) => {
+        done(err, conn);
+      });
+    }
+  },
+});
+
 app.use((req: Request, res: Response, next: NextFunction) => {
   req.db = db;
+  req.dbmssql = dbmssql;
   next();
 });
 
