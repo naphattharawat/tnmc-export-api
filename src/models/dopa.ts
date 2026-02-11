@@ -3,20 +3,35 @@ import moment = require('moment');
 var axios = require("axios").default;
 // import { Axios } from 'axios'
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const sleepWithCheck = async (ms: number, shouldContinue?: () => boolean) => {
+  const stepMs = 1000;
+  let remaining = ms;
+  while (remaining > 0) {
+    if (shouldContinue && !shouldContinue()) {
+      throw { stopped: true };
+    }
+    const wait = Math.min(stepMs, remaining);
+    await sleep(wait);
+    remaining -= wait;
+  }
+};
 export class DopaModel {
 
-  async checkpop(data) {
+  async checkpop(data, shouldContinue?: () => boolean) {
     let retry = 0;
     const maxRetry = 3;
     let res;
     do {
+      if (shouldContinue && !shouldContinue()) {
+        throw { stopped: true };
+      }
       const birthdate = `${(+moment(data.birth_date, 'YYYY-MM-DD HH:mm:ss').format('YYYY') + 543)}${moment(data.birth_date).format('MMDD')}`;
 
       try {
         res = await this.callcheckpop(data.cid, birthdate);
       } catch (error) {
         res = { status: 500 };
-        await sleep(60000);
+        await sleepWithCheck(60000, shouldContinue);
       }
 
       // res = {
@@ -63,16 +78,32 @@ export class DopaModel {
     })
   }
 
-  async checklk2(db, data) {
+  async checklk2(
+    db,
+    data,
+    logMessage?: (taskId: string, message: string, color?: string) => void,
+    shouldContinue?: () => boolean
+  ) {
     let retry = 0;
     const maxRetry = 3;
-    let res;
+    let res: any = {};
     let resStatus;
     let dataRes = {};
     do {
+      if (shouldContinue && !shouldContinue()) {
+        throw { stopped: true };
+      }
       const token = await db('token').where('status', 'ACTIVE').orderBy('updated_date', 'desc').limit(1);
-      res = await this.callCheckLK(data.cid, token[0].token);
-      // console.log(res.data);
+      try {
+        res = await this.callCheckLK(data.cid, token[0].token);
+      } catch (error) {
+        if (logMessage) {
+          const message = (error as any)?.data?.errorMessage ?? (error as any)?.message ?? error;
+          logMessage('LK', `Error calling checkLK: ${message}`, 'orange');
+        }
+        resStatus = 500;
+        await sleepWithCheck(60000, shouldContinue);
+      }
 
       for (const r of res.data) {
         if (r.serviceID == 1) {
@@ -116,7 +147,7 @@ export class DopaModel {
       axios.request(options).then(function (response) {
         resolve(response.data);
       }).catch(function (error) {
-        resolve(error.response.data)
+        reject(error.response)
       });
     })
   }

@@ -11,9 +11,11 @@ import * as HttpStatus from 'http-status-codes';
 import * as express from 'express';
 import * as cors from 'cors';
 import chalk from 'chalk';
+import * as fs from 'fs';
 
 import { Router, Request, Response, NextFunction } from 'express';
 import { Jwt } from './models/jwt';
+import { startScheduler } from './jobs/scheduler';
 
 import indexRoute from './routes/index';
 import loginRoute from './routes/login';
@@ -40,32 +42,40 @@ app.use(express.static(path.join(__dirname, '../public')));
 
 app.use(cors());
 
-// logging helpers middleware: attach color helpers and logMessage to req and res.locals
-app.use((req: Request, res: Response, next: NextFunction) => {
-  // color helpers (เดิม)
+const createLogHelpers = () => {
   const purpleLog = (msg: string) => chalk.hex('#9402e8').bold(msg);
   const bluelog = (msg: string) => chalk.hex('#7cfced').bold(msg);
   const greenlog = (msg: string) => chalk.hex('#00fb58ff').bold(msg);
   const orangelog = (msg: string) => chalk.hex('#e86202').bold(msg);
   const redlog = (msg: string) => chalk.hex('#e80202').bold(msg);
 
-  // logMessage แบบรับสี (ใหม่)
+  const logDir = process.env.LOG_DIR || path.join(__dirname, '../logs');
+  const logFile = path.join(logDir, 'app.log');
+  fs.mkdirSync(logDir, { recursive: true });
+
   const logMessage = (taskId: string, message: string, color: 'purple' | 'blue' | 'red' | 'green' | 'orange' = 'blue') => {
     const now = new Date();
     const timestamp = now.toTimeString().split(' ')[0] + `.${now.getMilliseconds().toString().padStart(3, '0')}`;
     const colorFn = color === 'purple' ? purpleLog : color === 'orange' ? orangelog : color === 'red' ? redlog : color == 'green' ? greenlog : bluelog;
     console.log(`${timestamp} ${chalk.gray('|')} ${colorFn(taskId)} | ${message}`);
+    const line = `${timestamp} | ${taskId} | ${message}\n`;
+    fs.appendFile(logFile, line, () => {});
   };
 
-  // attach ทั้งบน req และ res.locals (เหมือนเดิม)
-  (req as any).purpleLog = purpleLog;
-  (req as any).bluelog = bluelog;
-  (req as any).orangelog = orangelog;
-  (req as any).redlog = redlog;
-  (req as any).greenlog = greenlog;
-  (req as any).logMessage = logMessage;
-  (res.locals as any).logMessage = logMessage;
+  return { purpleLog, bluelog, greenlog, orangelog, redlog, logMessage };
+};
 
+const logHelpers = createLogHelpers();
+
+// logging helpers middleware: attach color helpers and logMessage to req and res.locals
+app.use((req: Request, res: Response, next: NextFunction) => {
+  (req as any).purpleLog = logHelpers.purpleLog;
+  (req as any).bluelog = logHelpers.bluelog;
+  (req as any).orangelog = logHelpers.orangelog;
+  (req as any).redlog = logHelpers.redlog;
+  (req as any).greenlog = logHelpers.greenlog;
+  (req as any).logMessage = logHelpers.logMessage;
+  (res.locals as any).logMessage = logHelpers.logMessage;
   next();
 });
 
@@ -123,6 +133,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   req.dbmssql = dbmssql;
   next();
 });
+
+startScheduler({ db, dbmssql, logMessage: logHelpers.logMessage });
 
 let checkAuth = (req: Request, res: Response, next: NextFunction) => {
   let token: any = '';
