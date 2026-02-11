@@ -1,14 +1,41 @@
 import { Knex } from 'knex'
 export class DataModel {
+
+
   getState(db: Knex.QueryInterface) {
     return db.table('config')
       .limit(1);
   }
-  setState(db: Knex.QueryInterface, state: number) {
-    return db.table('config').update({ state: state })
+  getLogDetails(db: Knex.QueryInterface, logId: number) {
+    return db.table('log_details')
+      .where('log_id', logId)
+      .orderBy('id', 'asc');
   }
-  saveLogs(db: Knex.QueryInterface, state: number) {
-    return db.table('log_details').insert({ state_id: state })
+  setState(db: Knex.QueryInterface, logId: number, state: number) {
+    return db.table('config').update({ state: state, log_id: logId })
+  }
+  updateLogs(db: Knex.QueryInterface, logId: number, state: number) {
+    return db.table('logs').update({ state: state }).where({ 'id': logId });
+  }
+  saveLogs(db: Knex.QueryInterface) {
+    return db.table('logs').insert({ state: 0 }).returning('id');
+  }
+  saveLogDetails(db: Knex.QueryInterface, logId: number, state: number, count: any = null) {
+    return db.table('log_details').insert({ log_id: logId, state_id: state, rows: count }).returning('id');
+  }
+
+  updateLogDetails(db: Knex.QueryInterface, detailId: number, data: any) {
+    return db.table('log_details').where('id', detailId).update(data)
+  }
+
+  updateRowCheckPOP(db: Knex.QueryInterface, logDetailId: number) {
+    const total = db.table('data').count('* as total').whereNot('status_checkpop', 'PENDING');
+    return db.table('log_details').where('id', logDetailId).update({ rows: total });
+  }
+
+  updateRowCheckLK(db: Knex.QueryInterface, logDetailId: number) {
+    const total = db.table('data').count('* as total').whereNot('status_lk', 'PENDING');
+    return db.table('log_details').where('id', logDetailId).update({ rows: total });
   }
 
   getData(db: Knex.QueryInterface) {
@@ -20,6 +47,7 @@ export class DataModel {
   getDataPOPPending(db: Knex.QueryInterface) {
     return db.table('data').where('status', 'PENDING').andWhere('status_checkpop', 'PENDING');
   }
+
   updateData(db: Knex.QueryInterface, id: number, data: any) {
     return db.table('data').where('id', id).update(data)
   }

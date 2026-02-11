@@ -17,6 +17,8 @@ import { Jwt } from './models/jwt';
 
 import indexRoute from './routes/index';
 import loginRoute from './routes/login';
+import historyRoute from './routes/history';
+import processRoute from './routes/process';
 
 // Assign router to the express.Router() instance
 const app: express.Application = express();
@@ -109,9 +111,9 @@ let dbmssql = require('knex')({
     min: 0,
     max: 100,
     afterCreate: (conn, done) => {
-      conn.query('SET NAMES utf8', (err) => {
-        done(err, conn);
-      });
+      done(null, conn);
+      // conn.query('SET NAMES utf8', (err) => {
+        // });
     }
   },
 });
@@ -147,6 +149,8 @@ let checkAuth = (req: Request, res: Response, next: NextFunction) => {
 }
 
 app.use('/login', loginRoute);
+app.use('/history', historyRoute);
+app.use('/process', processRoute);
 app.use('/', indexRoute);
 
 //error handlers

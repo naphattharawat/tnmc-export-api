@@ -2,6 +2,7 @@ import { Knex } from 'knex'
 import moment = require('moment');
 var axios = require("axios").default;
 // import { Axios } from 'axios'
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 export class DopaModel {
 
   async checkpop(data) {
@@ -11,7 +12,12 @@ export class DopaModel {
     do {
       const birthdate = `${(+moment(data.birth_date, 'YYYY-MM-DD HH:mm:ss').format('YYYY') + 543)}${moment(data.birth_date).format('MMDD')}`;
 
-      res = await this.callcheckpop(data.cid, birthdate);
+      try {
+        res = await this.callcheckpop(data.cid, birthdate);
+      } catch (error) {
+        res = { status: 500 };
+        await sleep(60000);
+      }
 
       // res = {
       //   "ok": true,
@@ -51,7 +57,8 @@ export class DopaModel {
         // console.log(response.data);
         resolve(response.data);
       }).catch(function (error) {
-        resolve(error.response.data)
+        console.log(error);
+        reject(error.response)
       });
     })
   }
