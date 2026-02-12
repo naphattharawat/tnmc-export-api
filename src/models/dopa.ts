@@ -85,7 +85,7 @@ export class DopaModel {
     shouldContinue?: () => boolean
   ) {
     let retry = 0;
-    const maxRetry = 3;
+    const maxRetry = 1000;
     let res: any = {};
     let resStatus;
     let dataRes = {};
