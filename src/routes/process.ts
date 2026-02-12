@@ -54,6 +54,8 @@ router.get('/state', async (req: Request, res: Response) => {
     const state = rs?.length ? rs[0].state : null;
     res.send({ ok: true, isProcessing, state: state, details: logs });
   } catch (error: any) {
+    const message = error?.message ?? error;
+    req.logMessage?.('ERROR', `Process state error: ${message}`, 'red');
     res.send({ ok: false, error: error?.message ?? error, code: HttpStatus.INTERNAL_SERVER_ERROR });
   }
 });
@@ -125,6 +127,8 @@ export async function runProcess(ctx: ProcessContext): Promise<ProcessResult> {
 
     return { ok: true, state: 'Processing done.', code: HttpStatus.OK };
   } catch (error) {
+    const message = (error as any)?.message ?? error;
+    logMessage('ERROR', `Processing error: ${message}`, 'red');
     return { ok: false, state: 'Processing error.', code: HttpStatus.INTERNAL_SERVER_ERROR };
   } finally {
     isProcessing = false;
@@ -150,7 +154,8 @@ async function stepPullData(ctx: ProcessContext, logId: number, state: number): 
   } catch (err) {
     console.log(err);
     const logMessage = getLogMessage(ctx);
-    logMessage('ERROR', `เกิดข้อผิดพลาดในการดึงข้อมูลจากฐานข้อมูล`, 'red');
+    const message = (err as any)?.message ?? err;
+    logMessage('ERROR', `เกิดข้อผิดพลาดในการดึงข้อมูลจากฐานข้อมูล: ${message}`, 'red');
     await markError(ctx, 'PULLDATA', err);
     return state;
   }
@@ -165,7 +170,7 @@ async function stepCheckPop(ctx: ProcessContext, logId: number, state: number): 
   const result = await retryUntilDone({
     maxRetry: 5,
     checkCount: () => dataModel.checkDataPOPDone(ctx.db),
-    runOnce: () => verifyCheckPOP(ctx.db, logDetailId, ctx.shouldContinue),
+    runOnce: () => verifyCheckPOP(ctx.db, logDetailId, getLogMessage(ctx), ctx.shouldContinue),
     shouldContinue: ctx.shouldContinue,
   });
 
@@ -199,7 +204,7 @@ async function stapWaitLogin(ctx: ProcessContext, logId: number, state: number):
     }
     const token = await dataModel.getTokenLK(ctx.db);
     if (token.length) {
-      res = await dopaModel.lkCheckToken(token[0].token);
+      res = await dopaModel.lkCheckToken(token[0].token, logMessage);
     } else {
 
     }
@@ -304,9 +309,9 @@ async function markError(ctx: ProcessContext, step: string, err?: any) {
 // -------------------- helpers --------------------
 async function retry<T>(
   fn: () => Promise<T>,
-  opts: { maxRetries: number; delayMs: number; label?: string }
+  opts: { maxRetries: number; delayMs: number; label?: string; logMessage?: (taskId: string, message: string, color?: LogColor) => void }
 ): Promise<{ ok: true; data: T; attempts: number } | { ok: false; error: any; attempts: number }> {
-  const { maxRetries, delayMs, label } = opts;
+  const { maxRetries, delayMs, label, logMessage } = opts;
 
   let attempts = 0;
   while (true) {
@@ -322,6 +327,9 @@ async function retry<T>(
       console.warn(`${prefix} error:`, message);
       const stack = (error as any)?.stack;
       if (stack) console.warn(`${prefix} stack:`, stack);
+      if (logMessage) {
+        logMessage(label ?? 'RETRY', `Error: ${message}`, 'red');
+      }
       if (attempts >= maxRetries) {
         return { ok: false, error, attempts };
       }
@@ -370,6 +378,7 @@ async function verifyWithDopa<T>(params: {
   maxRetries?: number;
   retryDelayMs?: number;
   shouldContinue?: () => boolean;
+  logMessage?: (taskId: string, message: string, color?: LogColor) => void;
 }) {
   const {
     db,
@@ -383,6 +392,7 @@ async function verifyWithDopa<T>(params: {
     maxRetries = 3,
     retryDelayMs = 60 * 1000,
     shouldContinue,
+    logMessage,
   } = params;
 
   // await dataModel.setState(db, setStateStart);
@@ -399,6 +409,7 @@ async function verifyWithDopa<T>(params: {
         maxRetries,
         delayMs: retryDelayMs,
         label,
+        logMessage,
       });
 
       if (!r.ok) throw r.error; // ให้ไป onFail
@@ -412,6 +423,10 @@ async function verifyWithDopa<T>(params: {
     },
     async (row, error) => {
       console.error(`[${label}] failed for row`, row?.id ?? row, error);
+      if (logMessage) {
+        const message = (error as any)?.message ?? error;
+        logMessage('ERROR', `[${label}] failed for row ${row?.id ?? row}: ${message}`, 'red');
+      }
       await updateOnFail(db, row, error);
     },
     shouldContinue
@@ -441,14 +456,19 @@ export async function pullData(db: any, logId: number, dbmssql: any) {
   // await dataModel.setState(db, 2);
 }
 
-export async function verifyCheckPOP(db: any, logDetailId: number, shouldContinue?: () => boolean) {
+export async function verifyCheckPOP(
+  db: any,
+  logDetailId: number,
+  logMessage?: (taskId: string, message: string, color?: LogColor) => void,
+  shouldContinue?: () => boolean
+) {
   return verifyWithDopa({
     db,
     setStateStart: 3,
     setStateDone: 4,
     label: 'CHECKPOP',
     getRows: async (db) => await dataModel.getDataPOPPending(db),
-    callDopa: async (row) => await dopaModel.checkpop(row, shouldContinue),
+    callDopa: async (row) => await dopaModel.checkpop(row, logMessage, shouldContinue),
 
 
     updateOnSuccess: async (db, row, info) => {
@@ -473,6 +493,7 @@ export async function verifyCheckPOP(db: any, logDetailId: number, shouldContinu
     maxRetries: 3,
     retryDelayMs: 60 * 1000,
     shouldContinue,
+    logMessage,
   });
 }
 
@@ -516,6 +537,7 @@ export async function verifyLK2(
     maxRetries: 3,
     retryDelayMs: 60 * 1000,
     shouldContinue,
+    logMessage,
   });
 }
 

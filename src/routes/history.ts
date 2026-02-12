@@ -12,6 +12,8 @@ router.get('/', async (req: Request, res: Response) => {
 
     res.send({ ok: true, data: rs, code: HttpStatus.OK });
   } catch (error: any) {
+    const message = error?.message ?? error;
+    req.logMessage?.('ERROR', `History error: ${message}`, 'red');
     res.send({ ok: false, error: error?.message ?? error, code: HttpStatus.INTERNAL_SERVER_ERROR });
   }
 });

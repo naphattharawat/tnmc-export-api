@@ -161,11 +161,12 @@ router.all('/thaid/callback', async (req: Request, res: Response) => {
       code: HttpStatus.OK,
     });
   } catch (error: any) {
-    console.log(error);
+    const message = error?.message ?? error;
+    req.logMessage?.('ERROR', `ThaiD callback error: ${message}`, 'red');
 
     return res.send({
       ok: false,
-      error: error?.message ?? error,
+      error: message,
       code: HttpStatus.INTERNAL_SERVER_ERROR,
     });
   }
@@ -180,7 +181,9 @@ router.get('/users', async (req: Request, res: Response) => {
     }));
     res.send({ ok: true, data, code: HttpStatus.OK });
   } catch (error: any) {
-    res.send({ ok: false, error: error?.message ?? error, code: HttpStatus.INTERNAL_SERVER_ERROR });
+    const message = error?.message ?? error;
+    req.logMessage?.('ERROR', `Users list error: ${message}`, 'red');
+    res.send({ ok: false, error: message, code: HttpStatus.INTERNAL_SERVER_ERROR });
   }
 });
 
@@ -205,7 +208,9 @@ router.post('/users', async (req: Request, res: Response) => {
 
     res.send({ ok: true, data: saved, code: HttpStatus.OK });
   } catch (error: any) {
-    res.send({ ok: false, error: error?.message ?? error, code: HttpStatus.INTERNAL_SERVER_ERROR });
+    const message = error?.message ?? error;
+    req.logMessage?.('ERROR', `Users create error: ${message}`, 'red');
+    res.send({ ok: false, error: message, code: HttpStatus.INTERNAL_SERVER_ERROR });
   }
 });
 
@@ -223,7 +228,9 @@ router.put('/users', async (req: Request, res: Response) => {
 
     res.send({ ok: true, data: { cid, name }, code: HttpStatus.OK });
   } catch (error: any) {
-    res.send({ ok: false, error: error?.message ?? error, code: HttpStatus.INTERNAL_SERVER_ERROR });
+    const message = error?.message ?? error;
+    req.logMessage?.('ERROR', `Users update error: ${message}`, 'red');
+    res.send({ ok: false, error: message, code: HttpStatus.INTERNAL_SERVER_ERROR });
   }
 });
 
@@ -236,7 +243,9 @@ router.delete('/users/:cid', async (req: Request, res: Response) => {
     await dataModel.softDeleteUser(req.db, cid);
     res.send({ ok: true, cid, code: HttpStatus.OK });
   } catch (error: any) {
-    res.send({ ok: false, error: error?.message ?? error, code: HttpStatus.INTERNAL_SERVER_ERROR });
+    const message = error?.message ?? error;
+    req.logMessage?.('ERROR', `Users delete error: ${message}`, 'red');
+    res.send({ ok: false, error: message, code: HttpStatus.INTERNAL_SERVER_ERROR });
   }
 });
 
@@ -251,7 +260,9 @@ router.get('/dates', async (req: Request, res: Response) => {
     }));
     res.send({ ok: true, data, code: HttpStatus.OK });
   } catch (error: any) {
-    res.send({ ok: false, error: error?.message ?? error, code: HttpStatus.INTERNAL_SERVER_ERROR });
+    const message = error?.message ?? error;
+    req.logMessage?.('ERROR', `Dates list error: ${message}`, 'red');
+    res.send({ ok: false, error: message, code: HttpStatus.INTERNAL_SERVER_ERROR });
   }
 });
 
@@ -301,7 +312,9 @@ router.post('/dates', async (req: Request, res: Response) => {
     await dataModel.saveConfigDatetimeMany(req.db, rows);
     res.send({ ok: true, data: rows, code: HttpStatus.OK });
   } catch (error: any) {
-    res.send({ ok: false, error: error?.message ?? error, code: HttpStatus.INTERNAL_SERVER_ERROR });
+    const message = error?.message ?? error;
+    req.logMessage?.('ERROR', `Dates save error: ${message}`, 'red');
+    res.send({ ok: false, error: message, code: HttpStatus.INTERNAL_SERVER_ERROR });
   }
 });
 

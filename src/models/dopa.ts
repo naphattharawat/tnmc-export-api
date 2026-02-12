@@ -3,6 +3,7 @@ import moment = require('moment');
 var axios = require("axios").default;
 // import { Axios } from 'axios'
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const formatError = (error: any) => (error as any)?.data?.errorMessage ?? (error as any)?.message ?? error;
 const sleepWithCheck = async (ms: number, shouldContinue?: () => boolean) => {
   const stepMs = 1000;
   let remaining = ms;
@@ -17,7 +18,11 @@ const sleepWithCheck = async (ms: number, shouldContinue?: () => boolean) => {
 };
 export class DopaModel {
 
-  async checkpop(data, shouldContinue?: () => boolean) {
+  async checkpop(
+    data,
+    logMessage?: (taskId: string, message: string, color?: string) => void,
+    shouldContinue?: () => boolean
+  ) {
     let retry = 0;
     const maxRetry = 3;
     let res;
@@ -28,8 +33,11 @@ export class DopaModel {
       const birthdate = `${(+moment(data.birth_date, 'YYYY-MM-DD HH:mm:ss').format('YYYY') + 543)}${moment(data.birth_date).format('MMDD')}`;
 
       try {
-        res = await this.callcheckpop(data.cid, birthdate);
+        res = await this.callcheckpop(data.cid, birthdate, logMessage);
       } catch (error) {
+        if (logMessage) {
+          logMessage('CHECKPOP', `Error calling checkpop: ${formatError(error)}`, 'orange');
+        }
         res = { status: 500 };
         await sleepWithCheck(60000, shouldContinue);
       }
@@ -59,7 +67,7 @@ export class DopaModel {
     }
   }
 
-  callcheckpop(cid, dob) {
+  callcheckpop(cid, dob, logMessage?: (taskId: string, message: string, color?: string) => void) {
     var options = {
       method: 'POST',
       url: 'https://dopaconn.tnmc.or.th/checkpop/',
@@ -72,7 +80,9 @@ export class DopaModel {
         // console.log(response.data);
         resolve(response.data);
       }).catch(function (error) {
-        console.log(error);
+        if (logMessage) {
+          logMessage('CHECKPOP', `Error calling checkpop: ${formatError(error)}`, 'orange');
+        }
         reject(error.response)
       });
     })
@@ -95,11 +105,10 @@ export class DopaModel {
       }
       const token = await db('token').where('status', 'ACTIVE').orderBy('updated_date', 'desc').limit(1);
       try {
-        res = await this.callCheckLK(data.cid, token[0].token);
+        res = await this.callCheckLK(data.cid, token[0].token, logMessage);
       } catch (error) {
         if (logMessage) {
-          const message = (error as any)?.data?.errorMessage ?? (error as any)?.message ?? error;
-          logMessage('LK', `Error calling checkLK: ${message}`, 'orange');
+          logMessage('LK', `Error calling checkLK: ${formatError(error)}`, 'orange');
         }
         resStatus = 500;
         await sleepWithCheck(60000, shouldContinue);
@@ -126,7 +135,7 @@ export class DopaModel {
     }
   }
 
-  callCheckLK(cid, token) {
+  callCheckLK(cid, token, logMessage?: (taskId: string, message: string, color?: string) => void) {
     var options = {
       method: 'POST',
       url: process.env.LK_API_URL + '/api/center/request/',
@@ -147,12 +156,15 @@ export class DopaModel {
       axios.request(options).then(function (response) {
         resolve(response.data);
       }).catch(function (error) {
+        if (logMessage) {
+          logMessage('LK', `Error calling checkLK: ${formatError(error)}`, 'orange');
+        }
         reject(error.response)
       });
     })
   }
 
-  lkCheckToken(token) {
+  lkCheckToken(token, logMessage?: (taskId: string, message: string, color?: string) => void) {
     var options = {
       method: 'GET',
       url: 'http://172.16.30.145/api/center/user/job',
@@ -166,7 +178,9 @@ export class DopaModel {
         // console.log(response.data);
         resolve(true);
       }).catch(function (error) {
-        // console.error(error);
+        if (logMessage) {
+          logMessage('LK', `Error calling lkCheckToken: ${formatError(error)}`, 'orange');
+        }
         resolve(false);
       });
     })

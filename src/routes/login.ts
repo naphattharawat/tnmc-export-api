@@ -31,9 +31,11 @@ router.post('/', async (req: Request, res: Response) => {
     } else {
   res.send({ ok: false, error: 'Login failed!', code: HttpStatus.UNAUTHORIZED });
 }
-  } catch (error) {
-  res.send({ ok: false, error: error.message, code: HttpStatus.INTERNAL_SERVER_ERROR });
-}
+  } catch (error: any) {
+    const message = error?.message ?? error;
+    req.logMessage?.('ERROR', `Login error: ${message}`, 'red');
+    res.send({ ok: false, error: message, code: HttpStatus.INTERNAL_SERVER_ERROR });
+  }
 });
 
 export default router;
