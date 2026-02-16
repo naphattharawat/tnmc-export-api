@@ -11,3 +11,4 @@ app/*
 .env
 package-lock.json
 logs/*
+exports
