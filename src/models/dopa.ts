@@ -108,6 +108,8 @@ export class DopaModel {
         // console.log(response.data);
         resolve(response.data);
       }).catch(function (error) {
+        console.log(error,cid,dob);
+        
         if (logMessage) {
           logMessage('CHECKPOP', `Error calling checkpop: ${formatError(error)}`, 'orange');
         }
