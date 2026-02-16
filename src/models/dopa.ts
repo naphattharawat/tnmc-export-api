@@ -3,7 +3,35 @@ import moment = require('moment');
 var axios = require("axios").default;
 // import { Axios } from 'axios'
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-const formatError = (error: any) => (error as any)?.data?.errorMessage ?? (error as any)?.message ?? error;
+const safeJson = (value: any) => {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
+
+const formatError = (error: any) => {
+  if (error === null || error === undefined) return String(error);
+  if (typeof error === 'string') return error;
+  if (error instanceof Error && error.message) return error.message;
+
+  const status = error?.status ?? error?.statusCode ?? error?.response?.status;
+  const statusText = error?.statusText ?? error?.response?.statusText;
+  const data = error?.data ?? error?.response?.data;
+
+  const parts: string[] = [];
+  if (status !== undefined) {
+    parts.push(`status ${status}${statusText ? ` ${statusText}` : ''}`);
+  }
+  if (data !== undefined) {
+    parts.push(typeof data === 'string' ? data : safeJson(data));
+  }
+
+  if (parts.length) return parts.join(' | ');
+  if (error?.message) return String(error.message);
+  return safeJson(error);
+};
 const sleepWithCheck = async (ms: number, shouldContinue?: () => boolean) => {
   const stepMs = 1000;
   let remaining = ms;
@@ -83,7 +111,7 @@ export class DopaModel {
         if (logMessage) {
           logMessage('CHECKPOP', `Error calling checkpop: ${formatError(error)}`, 'orange');
         }
-        reject(error.response)
+        reject(error)
       });
     })
   }
@@ -166,7 +194,7 @@ export class DopaModel {
         if (logMessage) {
           logMessage('LK', `Error calling checkLK: ${formatError(error)}`, 'orange');
         }
-        reject(error.response)
+        reject(error)
       });
     })
   }
