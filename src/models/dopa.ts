@@ -95,7 +95,7 @@ export class DopaModel {
     shouldContinue?: () => boolean
   ) {
     let retry = 0;
-    const maxRetry = 1000;
+    const maxRetry = 3;
     let res: any = {};
     let resStatus;
     let dataRes = {};
@@ -114,15 +114,22 @@ export class DopaModel {
         await sleepWithCheck(60000, shouldContinue);
       }
 
-      for (const r of res.data) {
-        if (r.serviceID == 1) {
-          resStatus = r.responseStatus
-          dataRes = {
-            dob: r.responseData.dateOfBirth,
-            status: r.responseData.statusOfPersonCode // 1=เสียชีวิต, 0=มีชีวิต, 2=ไม่พบข้อมูล
+      if (res && res.data) {
+        for (const r of res.data) {
+          if (r.serviceID == 1) {
+            resStatus = r.responseStatus;
+            const statusCode = Number(resStatus);
+            if (statusCode === 400 || statusCode === 404) {
+              return { status: 'NOTFOUND' };
+            }
+            dataRes = {
+              dob: r.responseData.dateOfBirth,
+              status: r.responseData.statusOfPersonCode // 1=เสียชีวิต, 0=มีชีวิต, 2=ไม่พบข้อมูล
+            }
           }
         }
-
+      } else {
+        await sleep(6000);
       }
       retry++;
 

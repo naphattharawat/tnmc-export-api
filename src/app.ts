@@ -55,7 +55,8 @@ const createLogHelpers = () => {
 
   const logMessage = (taskId: string, message: string, color: 'purple' | 'blue' | 'red' | 'green' | 'orange' = 'blue') => {
     const now = new Date();
-    const timestamp = now.toTimeString().split(' ')[0] + `.${now.getMilliseconds().toString().padStart(3, '0')}`;
+    const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const timestamp = `${date} ${now.toTimeString().split(' ')[0]}.${now.getMilliseconds().toString().padStart(3, '0')}`;
     const colorFn = color === 'purple' ? purpleLog : color === 'orange' ? orangelog : color === 'red' ? redlog : color == 'green' ? greenlog : bluelog;
     console.log(`${timestamp} ${chalk.gray('|')} ${colorFn(taskId)} | ${message}`);
     const line = `${timestamp} | ${taskId} | ${message}\n`;

@@ -4,6 +4,7 @@ import * as HttpStatus from 'http-status-codes';
 import { DataModel } from '../models/data';
 import { DopaModel } from '../models/dopa';
 import { DataMSSQLModel } from '../models/mssql';
+import { exportReports } from '../jobs/exporter';
 const router: Router = Router();
 const dataModel = new DataModel();
 import * as _ from 'lodash';
@@ -23,14 +24,30 @@ let isProcessing = false;
 export const isProcessRunning = () => isProcessing;
 
 const fallbackLogMessage = (taskId: string, message: string, color: LogColor = 'blue') => {
+  const now = new Date();
+  const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const timestamp = `${date} ${now.toTimeString().split(' ')[0]}.${now.getMilliseconds().toString().padStart(3, '0')}`;
   const prefix = color === 'red' ? '[ERROR]' : color === 'green' ? '[OK]' : '[INFO]';
-  console.log(`${prefix} ${taskId} | ${message}`);
+  console.log(`${timestamp} ${prefix} ${taskId} | ${message}`);
 };
 
 const getLogMessage = (ctx: ProcessContext) => ctx.logMessage ?? fallbackLogMessage;
 const canContinue = (ctx: ProcessContext) => !ctx.shouldContinue || ctx.shouldContinue();
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const sleepWithCheck = async (ms: number, shouldContinue?: () => boolean) => {
+  const stepMs = 1000;
+  let remaining = ms;
+  while (remaining > 0) {
+    if (shouldContinue && !shouldContinue()) {
+      return false;
+    }
+    const wait = Math.min(stepMs, remaining);
+    await sleep(wait);
+    remaining -= wait;
+  }
+  return true;
+};
 const isStopError = (error: any): error is { stopped: true } => !!error && error.stopped === true;
 const convertThaiDobToIso = (dob: unknown): string | null => {
   const raw = String(dob ?? '').trim();
@@ -125,6 +142,10 @@ export async function runProcess(ctx: ProcessContext): Promise<ProcessResult> {
     // 0 finish
     state = await done(ctx, logId, state);
 
+    if (state === 8) {
+      await exportReports(ctx.db, logId, logMessage);
+    }
+
     return { ok: true, state: 'Processing done.', code: HttpStatus.OK };
   } catch (error) {
     const message = (error as any)?.message ?? error;
@@ -208,7 +229,7 @@ async function stapWaitLogin(ctx: ProcessContext, logId: number, state: number):
     } else {
 
     }
-    console.log('res', res);
+    // console.log('res', res);
 
     if (res) {
       pass = true;
@@ -346,7 +367,8 @@ async function processEachRow<T>(
   runner: (row: any) => Promise<T>,
   onSuccess: (row: any, result: T) => Promise<void>,
   onFail: (row: any, error: any) => Promise<void>,
-  shouldContinue?: () => boolean
+  shouldContinue?: () => boolean,
+  delayOnFailMs?: number
 ): Promise<{ stopped: boolean }> {
   for (const row of rows) {
     if (shouldContinue && !shouldContinue()) {
@@ -360,6 +382,10 @@ async function processEachRow<T>(
         return { stopped: true };
       }
       await onFail(row, err);
+      if (delayOnFailMs && delayOnFailMs > 0) {
+        const ok = await sleepWithCheck(delayOnFailMs, shouldContinue);
+        if (!ok) return { stopped: true };
+      }
     }
   }
   return { stopped: false };
@@ -379,6 +405,7 @@ async function verifyWithDopa<T>(params: {
   retryDelayMs?: number;
   shouldContinue?: () => boolean;
   logMessage?: (taskId: string, message: string, color?: LogColor) => void;
+  delayOnFailMs?: number;
 }) {
   const {
     db,
@@ -393,6 +420,7 @@ async function verifyWithDopa<T>(params: {
     retryDelayMs = 60 * 1000,
     shouldContinue,
     logMessage,
+    delayOnFailMs,
   } = params;
 
   // await dataModel.setState(db, setStateStart);
@@ -429,7 +457,8 @@ async function verifyWithDopa<T>(params: {
       }
       await updateOnFail(db, row, error);
     },
-    shouldContinue
+    shouldContinue,
+    delayOnFailMs
   );
   if (result.stopped) return;
 
@@ -494,6 +523,7 @@ export async function verifyCheckPOP(
     retryDelayMs: 60 * 1000,
     shouldContinue,
     logMessage,
+    delayOnFailMs: 5000,
   });
 }
 
@@ -512,12 +542,13 @@ export async function verifyLK2(
     callDopa: async (row) => await dopaModel.checklk2(db, row, logMessage, shouldContinue),
 
     updateOnSuccess: async (db, row, info: any) => {
+      // console.log(row, info);
       const lkStatus = info?.status;
       const lkDobIso = convertThaiDobToIso(info?.dob);
       await dataModel.updateRowCheckLK(db, logDetailId);
       await dataModel.updateData(db, row.id, {
         status_lk: lkStatus == null ? 'PENDING' : lkStatus,
-        status: lkStatus == null ? 'PENDING' : +lkStatus == 1 ? 'DEATH' : +lkStatus == 0 ? 'ALIVE' : +lkStatus == 2 ? 'LOST' : 'PENDING',
+        status: lkStatus == null ? 'PENDING' : +lkStatus == 1 ? 'DEATH' : +lkStatus == 0 ? 'ALIVE' : +lkStatus == 2 ? 'LOST' : lkStatus == 'NOTFOUND' ? 'NOTFOUND' : 'PENDING',
         birth_date: lkDobIso ?? row.birth_date,
         // lk2_info: JSON.stringify(info),
         // lk2_updated_at: new Date(),
@@ -538,6 +569,7 @@ export async function verifyLK2(
     retryDelayMs: 60 * 1000,
     shouldContinue,
     logMessage,
+    delayOnFailMs: 5000,
   });
 }
 

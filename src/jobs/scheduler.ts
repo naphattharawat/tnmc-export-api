@@ -25,7 +25,8 @@ const dataModel = new DataModel();
 
 const fallbackLogMessage: ProcessContext['logMessage'] = (taskId, message, color = 'blue') => {
   const now = new Date();
-  const timestamp = now.toTimeString().split(' ')[0] + `.${now.getMilliseconds().toString().padStart(3, '0')}`;
+  const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const timestamp = `${date} ${now.toTimeString().split(' ')[0]}.${now.getMilliseconds().toString().padStart(3, '0')}`;
   const colorFn =
     color === 'purple'
       ? chalk.hex('#9402e8').bold

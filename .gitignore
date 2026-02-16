@@ -10,3 +10,4 @@ app/*
 .idea
 .env
 package-lock.json
+logs/*

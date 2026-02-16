@@ -9,6 +9,8 @@ import * as _ from 'lodash';
 import moment = require('moment');
 import { token } from 'morgan';
 import axios from 'axios';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const dataModel = new DataModel();
 const dopaModel = new DopaModel();
@@ -18,6 +20,29 @@ import { Jwt } from '../models/jwt';
 
 
 const jwt = new Jwt();
+
+const getExportDir = () =>
+  process.env.EXPORT_DIR
+    ? path.resolve(process.env.EXPORT_DIR)
+    : path.resolve(__dirname, '..', '..', 'exports');
+
+const resolveExportFile = (logId: string | number, type: 'birth' | 'death') => {
+  const safeId = String(logId).replace(/[^0-9]/g, '');
+  const fileName = type === 'birth' ? `export_birth_date_${safeId}.xlsx` : `export_death_${safeId}.xlsx`;
+  return path.join(getExportDir(), fileName);
+};
+
+const sendExportFile = (req: Request, res: Response, type: 'birth' | 'death') => {
+  const logId = String(req.params.logId ?? '').trim();
+  if (!logId) {
+    return res.send({ ok: false, error: 'Missing logId', code: HttpStatus.BAD_REQUEST });
+  }
+  const filePath = resolveExportFile(logId, type);
+  if (!fs.existsSync(filePath)) {
+    return res.send({ ok: false, error: 'File not found', code: HttpStatus.NOT_FOUND });
+  }
+  return res.download(filePath);
+};
 
 
 router.get('/', (req: Request, res: Response) => {
@@ -107,7 +132,7 @@ router.all('/thaid/callback', async (req: Request, res: Response) => {
       personalID: Number(pid),
       accessToken: thaidAccessToken,
     };
-    console.log(body);
+    // console.log(body);
 
     const lkConfirmRes = await axios.post(
       lkConfirmUrl,
@@ -315,6 +340,26 @@ router.post('/dates', async (req: Request, res: Response) => {
     const message = error?.message ?? error;
     req.logMessage?.('ERROR', `Dates save error: ${message}`, 'red');
     res.send({ ok: false, error: message, code: HttpStatus.INTERNAL_SERVER_ERROR });
+  }
+});
+
+router.get('/exports/:logId/birth', (req: Request, res: Response) => {
+  try {
+    return sendExportFile(req, res, 'birth');
+  } catch (error: any) {
+    const message = error?.message ?? error;
+    req.logMessage?.('ERROR', `Export birth download error: ${message}`, 'red');
+    return res.send({ ok: false, error: message, code: HttpStatus.INTERNAL_SERVER_ERROR });
+  }
+});
+
+router.get('/exports/:logId/death', (req: Request, res: Response) => {
+  try {
+    return sendExportFile(req, res, 'death');
+  } catch (error: any) {
+    const message = error?.message ?? error;
+    req.logMessage?.('ERROR', `Export death download error: ${message}`, 'red');
+    return res.send({ ok: false, error: message, code: HttpStatus.INTERNAL_SERVER_ERROR });
   }
 });
 
