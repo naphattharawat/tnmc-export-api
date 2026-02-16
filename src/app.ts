@@ -135,7 +135,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// startScheduler({ db, dbmssql, logMessage: logHelpers.logMessage });
+startScheduler({ db, dbmssql, logMessage: logHelpers.logMessage });
 
 let checkAuth = (req: Request, res: Response, next: NextFunction) => {
   let token: any = '';
