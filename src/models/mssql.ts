@@ -7,7 +7,7 @@ export class DataMSSQLModel {
       .where('RECORD_STATUS', 'N')
       .andWhereRaw('len ( ID_CARD ) = 13')
       .andWhere('MEMBER_STATUS', '<>', 99)
-      .limit(100);
+      // .limit(100);
   }
 
 }
