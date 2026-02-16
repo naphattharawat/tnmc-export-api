@@ -507,7 +507,7 @@ export async function verifyCheckPOP(
       await dataModel.updateRowCheckPOP(db, logDetailId);
       await dataModel.updateData(db, row.id, {
         status_checkpop: info == null ? 'PENDING' : info,
-        status: info == null ? 'PENDING' : +info == 1 ? 'DEATH' : +info == 0 ? 'ALIVE' : +info == 2 ? 'LOST' : 'PENDING',
+        status: info == null ? 'PENDING' : info == 'NOTFOUND' ? 'NOTFOUND' : +info == 1 ? 'DEATH' : +info == 0 ? 'ALIVE' : +info == 2 ? 'LOST' : 'PENDING',
         // checkpop_info: JSON.stringify(info),  // ถ้าอยากเก็บ
         // checkpop_updated_at: new Date(),
       });

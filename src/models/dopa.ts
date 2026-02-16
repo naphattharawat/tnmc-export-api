@@ -58,10 +58,17 @@ export class DopaModel {
       if (shouldContinue && !shouldContinue()) {
         throw { stopped: true };
       }
+      const cidStr = String(data?.cid ?? '').trim();
+      if (!/^\d{13}$/.test(cidStr)) {
+        if (logMessage) {
+          logMessage('CHECKPOP', `Invalid cid: ${cidStr}`, 'orange');
+        }
+        return 'NOTFOUND';
+      }
       const birthdate = `${(+moment(data.birth_date, 'YYYY-MM-DD HH:mm:ss').format('YYYY') + 543)}${moment(data.birth_date).format('MMDD')}`;
 
       try {
-        res = await this.callcheckpop(data.cid, birthdate, logMessage);
+        res = await this.callcheckpop(cidStr, birthdate, logMessage);
       } catch (error) {
         if (logMessage) {
           logMessage('CHECKPOP', `Error calling checkpop: ${formatError(error)}`, 'orange');
