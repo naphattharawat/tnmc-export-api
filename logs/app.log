@@ -157,3 +157,12 @@
 2026-02-16 22:14:42.965 | SYS | ประมวลผลสำเร็จ
 2026-02-16 22:14:43.086 | SYS | Exported birth_date 8 rows -> /Users/tan/myself/tnmc/tnmc-export-api/exports/export_birth_date_21.xlsx
 2026-02-16 22:14:43.087 | SYS | Exported death 0 rows -> /Users/tan/myself/tnmc/tnmc-export-api/exports/export_death_21.xlsx
+2026-02-17 08:08:21.897 | ERROR | Process state error: select * from `config` limit 1 - read EADDRNOTAVAIL
+2026-02-17 08:21:23.176 | ERROR | Process state error: connect ENETUNREACH 172.16.30.149:3306 - Local (0.0.0.0:64954)
+2026-02-17 08:21:44.600 | ERROR | Process state error: connect ENETUNREACH 172.16.30.149:3306 - Local (0.0.0.0:49748)
+2026-02-17 08:22:07.093 | ERROR | Process state error: connect ENETUNREACH 172.16.30.149:3306 - Local (0.0.0.0:50117)
+2026-02-17 09:05:53.664 | ERROR | Process state error: connect ETIMEDOUT
+2026-02-17 09:06:11.161 | ERROR | Process state error: connect ETIMEDOUT
+2026-02-17 09:07:11.153 | ERROR | Process state error: connect ETIMEDOUT
+2026-02-17 09:08:11.166 | ERROR | Process state error: connect ETIMEDOUT
+2026-02-17 09:09:11.164 | ERROR | Process state error: connect ETIMEDOUT

@@ -44,6 +44,16 @@ const sendExportFile = (req: Request, res: Response, type: 'birth' | 'death') =>
   return res.download(filePath);
 };
 
+const getLogFilePath = () => path.resolve(__dirname, '..', '..', 'logs', 'app.log');
+
+const readLastLines = (filePath: string, maxLines: number) => {
+  if (!fs.existsSync(filePath)) return [];
+  const content = fs.readFileSync(filePath, 'utf8');
+  const lines = content.split(/\r?\n/);
+  if (lines.length && lines[lines.length - 1] === '') lines.pop();
+  return lines.slice(Math.max(0, lines.length - maxLines));
+};
+
 
 router.get('/', (req: Request, res: Response) => {
   res.send({ ok: true, message: 'Welcome to RESTful api server!', code: HttpStatus.OK });
@@ -359,6 +369,17 @@ router.get('/exports/:logId/death', (req: Request, res: Response) => {
   } catch (error: any) {
     const message = error?.message ?? error;
     req.logMessage?.('ERROR', `Export death download error: ${message}`, 'red');
+    return res.send({ ok: false, error: message, code: HttpStatus.INTERNAL_SERVER_ERROR });
+  }
+});
+
+router.get('/logs', (req: Request, res: Response) => {
+  try {
+    const lines = readLastLines(getLogFilePath(), 1000);
+    return res.send({ ok: true, lines, code: HttpStatus.OK });
+  } catch (error: any) {
+    const message = error?.message ?? error;
+    req.logMessage?.('ERROR', `Logs read error: ${message}`, 'red');
     return res.send({ ok: false, error: message, code: HttpStatus.INTERNAL_SERVER_ERROR });
   }
 });

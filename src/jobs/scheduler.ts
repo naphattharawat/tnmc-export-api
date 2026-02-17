@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import { DataModel } from '../models/data';
-import { ProcessContext, runProcess, isProcessRunning } from '../routes/process';
+import { ProcessContext, runProcess, isProcessRunning, setProcessRunning } from '../routes/process';
 
 const cron = require('node-cron');
 
@@ -156,6 +156,7 @@ export function startScheduler(baseCtx: { db: any; dbmssql: any; logMessage?: Pr
           return;
         }
 
+        setProcessRunning(true);
         lastRunByKey.set(scheduleKey, todayKey);
         logMessage(
           'CRON',
@@ -169,6 +170,7 @@ export function startScheduler(baseCtx: { db: any; dbmssql: any; logMessage?: Pr
           dbmssql: baseCtx.dbmssql,
           logMessage,
           shouldContinue,
+          allowAlreadyRunning: true,
         });
 
         if (!result.ok) {

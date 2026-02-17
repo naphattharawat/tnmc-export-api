@@ -17,11 +17,15 @@ export type ProcessContext = {
   dbmssql: any;
   logMessage?: (taskId: string, message: string, color?: LogColor) => void;
   shouldContinue?: () => boolean;
+  allowAlreadyRunning?: boolean;
 };
 export type ProcessResult = { ok: boolean; state: string; code: number };
 
 let isProcessing = false;
 export const isProcessRunning = () => isProcessing;
+export const setProcessRunning = (value: boolean) => {
+  isProcessing = value;
+};
 
 const fallbackLogMessage = (taskId: string, message: string, color: LogColor = 'blue') => {
   const now = new Date();
@@ -59,6 +63,83 @@ const convertThaiDobToIso = (dob: unknown): string | null => {
   return `${year}-${month}-${day}`;
 };
 
+type ConfigDatetimeRow = {
+  dd: number | string;
+  mm: number | string;
+  time: string;
+  hour: number | string;
+};
+
+type TimeParts = { hour: number; minute: number; second: number };
+
+const parseTimeParts = (value: string): TimeParts | null => {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  const normalized = raw.startsWith(':') ? raw.slice(1) : raw;
+  const parts = normalized.split(':');
+  if (parts.length < 2) return null;
+  const [h, m, s = '0'] = parts;
+  const hour = Number(h);
+  const minute = Number(m);
+  const second = Number(s);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute) || !Number.isFinite(second)) return null;
+  return { hour, minute, second };
+};
+
+const normalizeScheduleRow = (row: ConfigDatetimeRow) => {
+  const dd = Number(row.dd);
+  const mm = Number(row.mm);
+  const hours = Number(row.hour);
+  if (!Number.isFinite(dd) || !Number.isFinite(mm) || !Number.isFinite(hours)) return null;
+  if (dd <= 0 || dd > 31 || mm <= 0 || mm > 12 || hours <= 0) return null;
+  const timeParts = parseTimeParts(String(row.time ?? ''));
+  if (!timeParts) return null;
+  return { dd, mm, hours, timeParts };
+};
+
+const isValidDate = (date: Date, dd: number, mm: number) =>
+  date.getFullYear() > 0 && date.getMonth() === mm - 1 && date.getDate() === dd;
+
+const buildStartDate = (baseDate: Date, timeParts: TimeParts) =>
+  new Date(
+    baseDate.getFullYear(),
+    baseDate.getMonth(),
+    baseDate.getDate(),
+    timeParts.hour,
+    timeParts.minute,
+    timeParts.second,
+    0
+  );
+
+const isWithinWindow = (now: Date, startDate: Date, timeParts: TimeParts, durationHours: number) => {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+
+  const todayStart = buildStartDate(today, timeParts);
+  const todayEnd = new Date(todayStart.getTime() + durationHours * 60 * 60 * 1000);
+  if (todayStart >= startDate && now >= todayStart && now <= todayEnd) return true;
+
+  const yesterdayStart = buildStartDate(yesterday, timeParts);
+  const yesterdayEnd = new Date(yesterdayStart.getTime() + durationHours * 60 * 60 * 1000);
+  if (yesterdayStart >= startDate && now >= yesterdayStart && now <= yesterdayEnd) return true;
+
+  return false;
+};
+
+const getScheduleStatus = (rows: ConfigDatetimeRow[], now: Date) => {
+  const normalizedRows = rows
+    .map(normalizeScheduleRow)
+    .filter((row): row is { dd: number; mm: number; hours: number; timeParts: TimeParts } => row !== null);
+  const exists = normalizedRows.length > 0;
+  const isWithin = normalizedRows.some((row) => {
+    const startDate = new Date(now.getFullYear(), row.mm - 1, row.dd);
+    if (!isValidDate(startDate, row.dd, row.mm)) return false;
+    if (now < startDate) return false;
+    return isWithinWindow(now, startDate, row.timeParts, row.hours);
+  });
+  return { exists, isWithin };
+};
+
 
 const dataMssqlModel = new DataMSSQLModel();
 
@@ -69,7 +150,25 @@ router.get('/state', async (req: Request, res: Response) => {
     const rs: any = await dataModel.getState(req.db);
     const logs: any = await dataModel.getLogDetails(req.db, rs[0].log_id);
     const state = rs?.length ? rs[0].state : null;
-    res.send({ ok: true, isProcessing, state: state, details: logs });
+    const scheduleRows: ConfigDatetimeRow[] = await dataModel.getConfigDatetime(req.db);
+    const scheduleStatus = getScheduleStatus(scheduleRows ?? [], new Date());
+
+    const stateValue = state === null || state === undefined ? null : Number(state);
+    const isDone = stateValue === 8;
+    const isIdle = stateValue === 0 || stateValue === null || Number.isNaN(stateValue);
+
+    let statusText = 'stopped_unexpected';
+    if (isProcessing) {
+      statusText = 'running';
+    } else if (isDone) {
+      statusText = 'done';
+    } else if (isIdle) {
+      statusText = 'idle';
+    } else if (scheduleStatus.exists && !scheduleStatus.isWithin) {
+      statusText = 'paused_by_schedule';
+    }
+
+    res.send({ ok: true, isProcessing, state: state, statusText, details: logs });
   } catch (error: any) {
     const message = error?.message ?? error;
     req.logMessage?.('ERROR', `Process state error: ${message}`, 'red');
@@ -89,12 +188,14 @@ router.get('/', async (req: Request, res: Response) => {
 
 export async function runProcess(ctx: ProcessContext): Promise<ProcessResult> {
   const logMessage = getLogMessage(ctx);
+  const stopProcessing = () => setProcessRunning(false);
 
-  if (isProcessing) {
+  if (isProcessing && !ctx.allowAlreadyRunning) {
     return { ok: true, state: 'Processing already running.', code: HttpStatus.OK };
   }
 
   if (!canContinue(ctx)) {
+    stopProcessing();
     return { ok: true, state: 'Stopped by schedule window.', code: HttpStatus.OK };
   }
 
@@ -103,6 +204,7 @@ export async function runProcess(ctx: ProcessContext): Promise<ProcessResult> {
     logMessage('SYS', 'เริ่มประมวลผลรายงาน', 'purple');
     const current = await getCurrentState(ctx);
     if (!current.state) {
+      stopProcessing();
       return { ok: true, state: 'No state found.', code: HttpStatus.OK };
     }
     let logId;
@@ -118,24 +220,28 @@ export async function runProcess(ctx: ProcessContext): Promise<ProcessResult> {
     state = await stepPullData(ctx, logId, state);
     if (!canContinue(ctx)) {
       logMessage('SYS', 'หยุดตามเวลาที่กำหนด', 'orange');
+      stopProcessing();
       return { ok: true, state: 'Stopped by schedule window.', code: HttpStatus.OK };
     }
     // 3,4
     state = await stepCheckPop(ctx, logId, state);
     if (!canContinue(ctx)) {
       logMessage('SYS', 'หยุดตามเวลาที่กำหนด', 'orange');
+      stopProcessing();
       return { ok: true, state: 'Stopped by schedule window.', code: HttpStatus.OK };
     }
     // 5
     state = await stapWaitLogin(ctx, logId, state);
     if (!canContinue(ctx)) {
       logMessage('SYS', 'หยุดตามเวลาที่กำหนด', 'orange');
+      stopProcessing();
       return { ok: true, state: 'Stopped by schedule window.', code: HttpStatus.OK };
     }
     // 6,7
     state = await stepLK2(ctx, logId, state);
     if (!canContinue(ctx)) {
       logMessage('SYS', 'หยุดตามเวลาที่กำหนด', 'orange');
+      stopProcessing();
       return { ok: true, state: 'Stopped by schedule window.', code: HttpStatus.OK };
     }
 
@@ -150,6 +256,7 @@ export async function runProcess(ctx: ProcessContext): Promise<ProcessResult> {
   } catch (error) {
     const message = (error as any)?.message ?? error;
     logMessage('ERROR', `Processing error: ${message}`, 'red');
+    stopProcessing();
     return { ok: false, state: 'Processing error.', code: HttpStatus.INTERNAL_SERVER_ERROR };
   } finally {
     isProcessing = false;
