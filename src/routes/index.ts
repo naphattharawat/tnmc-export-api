@@ -26,6 +26,11 @@ const getExportDir = () =>
     ? path.resolve(process.env.EXPORT_DIR)
     : path.resolve(__dirname, '..', '..', 'exports');
 
+const getLogDir = () =>
+  process.env.LOG_DIR
+    ? path.resolve(process.env.LOG_DIR)
+    : path.resolve(__dirname, '..', '..', 'logs');
+
 const resolveExportFile = (logId: string | number, type: 'birth' | 'death') => {
   const safeId = String(logId).replace(/[^0-9]/g, '');
   const fileName = type === 'birth' ? `export_birth_date_${safeId}.xlsx` : `export_death_${safeId}.xlsx`;
@@ -44,7 +49,7 @@ const sendExportFile = (req: Request, res: Response, type: 'birth' | 'death') =>
   return res.download(filePath);
 };
 
-const getLogFilePath = () => path.resolve(__dirname, '..', '..', 'logs', 'app.log');
+const getLogFilePath = () => path.join(getLogDir(), 'app.log');
 
 const readLastLines = (filePath: string, maxLines: number) => {
   if (!fs.existsSync(filePath)) return [];
