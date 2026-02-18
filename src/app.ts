@@ -22,6 +22,7 @@ import historyRoute from './routes/history';
 import processRoute from './routes/process';
 import usersRoute from './routes/users';
 import exportRoute from './routes/exports';
+import dateRoute from './routes/dates';
 
 // Assign router to the express.Router() instance
 const app: express.Application = express();
@@ -167,6 +168,7 @@ app.use('/history', checkAuth, historyRoute);
 app.use('/process', checkAuth, processRoute);
 app.use('/users', checkAuth, usersRoute);
 app.use('/exports', checkAuth, exportRoute);
+app.use('/dates', checkAuth, dateRoute);
 app.use('/', indexRoute);
 
 //error handlers
