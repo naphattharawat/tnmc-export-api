@@ -18,9 +18,10 @@ import { Jwt } from './models/jwt';
 import { startScheduler } from './jobs/scheduler';
 
 import indexRoute from './routes/index';
-import loginRoute from './routes/login';
 import historyRoute from './routes/history';
 import processRoute from './routes/process';
+import usersRoute from './routes/users';
+import exportRoute from './routes/exports';
 
 // Assign router to the express.Router() instance
 const app: express.Application = express();
@@ -60,7 +61,7 @@ const createLogHelpers = () => {
     const colorFn = color === 'purple' ? purpleLog : color === 'orange' ? orangelog : color === 'red' ? redlog : color == 'green' ? greenlog : bluelog;
     console.log(`${timestamp} ${chalk.gray('|')} ${colorFn(taskId)} | ${message}`);
     const line = `${timestamp} | ${taskId} | ${message}\n`;
-    fs.appendFile(logFile, line, () => {});
+    fs.appendFile(logFile, line, () => { });
   };
 
   return { purpleLog, bluelog, greenlog, orangelog, redlog, logMessage };
@@ -124,7 +125,7 @@ let dbmssql = require('knex')({
     afterCreate: (conn, done) => {
       done(null, conn);
       // conn.query('SET NAMES utf8', (err) => {
-        // });
+      // });
     }
   },
 });
@@ -161,9 +162,11 @@ let checkAuth = (req: Request, res: Response, next: NextFunction) => {
     });
 }
 
-app.use('/login', loginRoute);
-app.use('/history', historyRoute);
-app.use('/process', processRoute);
+
+app.use('/history', checkAuth, historyRoute);
+app.use('/process', checkAuth, processRoute);
+app.use('/users', checkAuth, usersRoute);
+app.use('/exports', checkAuth, exportRoute);
 app.use('/', indexRoute);
 
 //error handlers

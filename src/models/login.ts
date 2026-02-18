@@ -1,9 +1,9 @@
 import { Knex } from 'knex'
-export class Login {
-  login(db: Knex.QueryInterface, username: string, password: string) {
+export class LoginModel {
+  checkAdmin(db: Knex.QueryInterface, cid) {
     return db.table('users')
-      .where('username', username)
-      .where('password', password)
+      .where('cid', cid)
+      .where('is_deleted', 'N')
       .limit(1);
   }
 }

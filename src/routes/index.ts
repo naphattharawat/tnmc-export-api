@@ -1,64 +1,16 @@
-import * as express from 'express';
+
 import { Router, Request, Response } from 'express';
 import * as HttpStatus from 'http-status-codes';
 import { DataModel } from '../models/data';
-import { DataMSSQLModel } from '../models/mssql';
-const dataMssqlModel = new DataMSSQLModel();
-import { DopaModel } from '../models/dopa';
-import * as _ from 'lodash';
-import moment = require('moment');
-import { token } from 'morgan';
-import axios from 'axios';
-import * as fs from 'fs';
-import * as path from 'path';
-
-const dataModel = new DataModel();
-const dopaModel = new DopaModel();
-const router: Router = Router();
-
+import { LoginModel } from '../models/login';
 import { Jwt } from '../models/jwt';
+import axios from 'axios';
+const dataModel = new DataModel();
+const loginModel = new LoginModel();
+const router: Router = Router();
 
 
 const jwt = new Jwt();
-
-const getExportDir = () =>
-  process.env.EXPORT_DIR
-    ? path.resolve(process.env.EXPORT_DIR)
-    : path.resolve(__dirname, '..', '..', 'exports');
-
-const getLogDir = () =>
-  process.env.LOG_DIR
-    ? path.resolve(process.env.LOG_DIR)
-    : path.resolve(__dirname, '..', '..', 'logs');
-
-const resolveExportFile = (logId: string | number, type: 'birth' | 'death') => {
-  const safeId = String(logId).replace(/[^0-9]/g, '');
-  const fileName = type === 'birth' ? `export_birth_date_${safeId}.xlsx` : `export_death_${safeId}.xlsx`;
-  return path.join(getExportDir(), fileName);
-};
-
-const sendExportFile = (req: Request, res: Response, type: 'birth' | 'death') => {
-  const logId = String(req.params.logId ?? '').trim();
-  if (!logId) {
-    return res.send({ ok: false, error: 'Missing logId', code: HttpStatus.BAD_REQUEST });
-  }
-  const filePath = resolveExportFile(logId, type);
-  if (!fs.existsSync(filePath)) {
-    return res.send({ ok: false, error: 'File not found', code: HttpStatus.NOT_FOUND });
-  }
-  return res.download(filePath);
-};
-
-const getLogFilePath = () => path.join(getLogDir(), 'app.log');
-
-const readLastLines = (filePath: string, maxLines: number) => {
-  if (!fs.existsSync(filePath)) return [];
-  const content = fs.readFileSync(filePath, 'utf8');
-  const lines = content.split(/\r?\n/);
-  if (lines.length && lines[lines.length - 1] === '') lines.pop();
-  return lines.slice(Math.max(0, lines.length - maxLines));
-};
-
 
 router.get('/', (req: Request, res: Response) => {
   res.send({ ok: true, message: 'Welcome to RESTful api server!', code: HttpStatus.OK });
@@ -193,13 +145,21 @@ router.all('/thaid/callback', async (req: Request, res: Response) => {
       id: tokenRes.data.pid
     }
     let token = jwt.sign(obj);
-
-    return res.send({
-      ok: true,
-      token: token,
-      state: state || undefined,
-      code: HttpStatus.OK,
-    });
+    const check = await loginModel.checkAdmin(req.db, pid);
+    if (check.length) {
+      return res.send({
+        ok: true,
+        token: token,
+        state: state || undefined,
+        code: HttpStatus.OK,
+      });
+    } else {
+      return res.send({
+        ok: false,
+        error: 'คุณไม่มีสิทธิ์ใช้งานระบบ',
+        code: HttpStatus.BAD_REQUEST,
+      });
+    }
   } catch (error: any) {
     const message = error?.message ?? error;
     req.logMessage?.('ERROR', `ThaiD callback error: ${message}`, 'red');
@@ -209,183 +169,6 @@ router.all('/thaid/callback', async (req: Request, res: Response) => {
       error: message,
       code: HttpStatus.INTERNAL_SERVER_ERROR,
     });
-  }
-});
-
-router.get('/users', async (req: Request, res: Response) => {
-  try {
-    const rs: any = await dataModel.getUsers(req.db);
-    const data = (rs ?? []).map((r: any) => ({
-      cid: String(r.cid ?? ''),
-      name: String(r.name ?? ''),
-    }));
-    res.send({ ok: true, data, code: HttpStatus.OK });
-  } catch (error: any) {
-    const message = error?.message ?? error;
-    req.logMessage?.('ERROR', `Users list error: ${message}`, 'red');
-    res.send({ ok: false, error: message, code: HttpStatus.INTERNAL_SERVER_ERROR });
-  }
-});
-
-router.post('/users', async (req: Request, res: Response) => {
-  try {
-    const body = req.body ?? {};
-    const items = Array.isArray(body) ? body : Array.isArray(body.items) ? body.items : [body];
-    if (!items.length) {
-      return res.send({ ok: false, error: 'Empty payload', code: HttpStatus.BAD_REQUEST });
-    }
-
-    const saved: Array<{ cid: string; name: string }> = [];
-    for (const item of items) {
-      const cid = String(item?.cid ?? '').trim();
-      const name = String(item?.name ?? '').trim();
-      if (!cid) return res.send({ ok: false, error: 'Invalid cid', code: HttpStatus.BAD_REQUEST });
-      if (!name) return res.send({ ok: false, error: 'Invalid name', code: HttpStatus.BAD_REQUEST });
-
-      await dataModel.upsertUser(req.db, { cid, name });
-      saved.push({ cid, name });
-    }
-
-    res.send({ ok: true, data: saved, code: HttpStatus.OK });
-  } catch (error: any) {
-    const message = error?.message ?? error;
-    req.logMessage?.('ERROR', `Users create error: ${message}`, 'red');
-    res.send({ ok: false, error: message, code: HttpStatus.INTERNAL_SERVER_ERROR });
-  }
-});
-
-router.put('/users', async (req: Request, res: Response) => {
-  try {
-    const cid = String(req.body?.cid ?? '').trim();
-    const name = String(req.body?.name ?? '').trim();
-    if (!cid) return res.send({ ok: false, error: 'Invalid cid', code: HttpStatus.BAD_REQUEST });
-    if (!name) return res.send({ ok: false, error: 'Invalid name', code: HttpStatus.BAD_REQUEST });
-
-    const updated = await dataModel.updateUserName(req.db, cid, name);
-    if (!updated) {
-      return res.send({ ok: false, error: 'User not found', code: HttpStatus.NOT_FOUND });
-    }
-
-    res.send({ ok: true, data: { cid, name }, code: HttpStatus.OK });
-  } catch (error: any) {
-    const message = error?.message ?? error;
-    req.logMessage?.('ERROR', `Users update error: ${message}`, 'red');
-    res.send({ ok: false, error: message, code: HttpStatus.INTERNAL_SERVER_ERROR });
-  }
-});
-
-router.delete('/users/:cid', async (req: Request, res: Response) => {
-  try {
-    const cid = String(req.params.cid ?? '').trim();
-    if (!cid) {
-      return res.send({ ok: false, error: 'Invalid cid', code: HttpStatus.BAD_REQUEST });
-    }
-    await dataModel.softDeleteUser(req.db, cid);
-    res.send({ ok: true, cid, code: HttpStatus.OK });
-  } catch (error: any) {
-    const message = error?.message ?? error;
-    req.logMessage?.('ERROR', `Users delete error: ${message}`, 'red');
-    res.send({ ok: false, error: message, code: HttpStatus.INTERNAL_SERVER_ERROR });
-  }
-});
-
-router.get('/dates', async (req: Request, res: Response) => {
-  try {
-    const rs: any = await dataModel.getConfigDatetime(req.db);
-    const data = (rs ?? []).map((r: any) => ({
-      month: String(r.mm ?? ''),
-      day: String(r.dd ?? ''),
-      startTime: typeof r.time === 'string' ? r.time.slice(0, 5) : r.time,
-      hours: String(r.hour ?? ''),
-    }));
-    res.send({ ok: true, data, code: HttpStatus.OK });
-  } catch (error: any) {
-    const message = error?.message ?? error;
-    req.logMessage?.('ERROR', `Dates list error: ${message}`, 'red');
-    res.send({ ok: false, error: message, code: HttpStatus.INTERNAL_SERVER_ERROR });
-  }
-});
-
-router.post('/dates', async (req: Request, res: Response) => {
-  try {
-    const body = req.body ?? {};
-    const items = Array.isArray(body) ? body : Array.isArray(body.items) ? body.items : [body];
-
-    if (!items.length) {
-      return res.send({ ok: false, error: 'Empty payload', code: HttpStatus.BAD_REQUEST });
-    }
-
-    const rows: Array<{ dd: number; mm: number; time: string; hour: number }> = [];
-
-    for (const item of items) {
-      const { month, day, startTime, hours } = item ?? {};
-
-      const mm = Number(month);
-      const dd = Number(day);
-      const hour = Number(hours);
-
-      if (!Number.isInteger(mm) || mm < 1 || mm > 12) {
-        return res.send({ ok: false, error: 'Invalid month', code: HttpStatus.BAD_REQUEST });
-      }
-      if (!Number.isInteger(dd) || dd < 1 || dd > 31) {
-        return res.send({ ok: false, error: 'Invalid day', code: HttpStatus.BAD_REQUEST });
-      }
-      if (!Number.isInteger(hour) || hour < 0 || hour > 24) {
-        return res.send({ ok: false, error: 'Invalid hours', code: HttpStatus.BAD_REQUEST });
-      }
-      if (typeof startTime !== 'string' || !/^\d{1,2}:\d{2}$/.test(startTime)) {
-        return res.send({ ok: false, error: 'Invalid startTime', code: HttpStatus.BAD_REQUEST });
-      }
-
-      const [hStr, mStr] = startTime.split(':');
-      const h = Number(hStr);
-      const m = Number(mStr);
-      if (!Number.isInteger(h) || h < 0 || h > 23 || !Number.isInteger(m) || m < 0 || m > 59) {
-        return res.send({ ok: false, error: 'Invalid startTime', code: HttpStatus.BAD_REQUEST });
-      }
-
-      const time = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
-      rows.push({ dd, mm, time, hour });
-    }
-
-    // ลบทั้งหมด แล้วบันทึกใหม่เสมอ
-    await dataModel.saveConfigDatetimeMany(req.db, rows);
-    res.send({ ok: true, data: rows, code: HttpStatus.OK });
-  } catch (error: any) {
-    const message = error?.message ?? error;
-    req.logMessage?.('ERROR', `Dates save error: ${message}`, 'red');
-    res.send({ ok: false, error: message, code: HttpStatus.INTERNAL_SERVER_ERROR });
-  }
-});
-
-router.get('/exports/:logId/birth', (req: Request, res: Response) => {
-  try {
-    return sendExportFile(req, res, 'birth');
-  } catch (error: any) {
-    const message = error?.message ?? error;
-    req.logMessage?.('ERROR', `Export birth download error: ${message}`, 'red');
-    return res.send({ ok: false, error: message, code: HttpStatus.INTERNAL_SERVER_ERROR });
-  }
-});
-
-router.get('/exports/:logId/death', (req: Request, res: Response) => {
-  try {
-    return sendExportFile(req, res, 'death');
-  } catch (error: any) {
-    const message = error?.message ?? error;
-    req.logMessage?.('ERROR', `Export death download error: ${message}`, 'red');
-    return res.send({ ok: false, error: message, code: HttpStatus.INTERNAL_SERVER_ERROR });
-  }
-});
-
-router.get('/logs', (req: Request, res: Response) => {
-  try {
-    const lines = readLastLines(getLogFilePath(), 1000);
-    return res.send({ ok: true, lines, code: HttpStatus.OK });
-  } catch (error: any) {
-    const message = error?.message ?? error;
-    req.logMessage?.('ERROR', `Logs read error: ${message}`, 'red');
-    return res.send({ ok: false, error: message, code: HttpStatus.INTERNAL_SERVER_ERROR });
   }
 });
 

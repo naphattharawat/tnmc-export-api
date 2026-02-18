@@ -5,11 +5,13 @@ import { DataModel } from '../models/data';
 import { DopaModel } from '../models/dopa';
 import { DataMSSQLModel } from '../models/mssql';
 import { exportReports } from '../jobs/exporter';
+import * as _ from 'lodash';
 const router: Router = Router();
 const dataModel = new DataModel();
-import * as _ from 'lodash';
-import moment = require('moment');
-import { log } from 'node:console';
+
+const dataMssqlModel = new DataMSSQLModel();
+
+const dopaModel = new DopaModel();
 
 export type LogColor = 'purple' | 'blue' | 'red' | 'green' | 'orange';
 export type ProcessContext = {
@@ -52,7 +54,7 @@ const sleepWithCheck = async (ms: number, shouldContinue?: () => boolean) => {
   }
   return true;
 };
-const isStopError = (error: any): error is { stopped: true } => !!error && error.stopped === true;
+const isStopError = (error: any): error is { stopped: true; reason?: string } => !!error && error.stopped === true;
 const convertThaiDobToIso = (dob: unknown): string | null => {
   const raw = String(dob ?? '').trim();
   if (!/^\d{8}$/.test(raw)) return null;
@@ -140,10 +142,6 @@ const getScheduleStatus = (rows: ConfigDatetimeRow[], now: Date) => {
   return { exists, isWithin };
 };
 
-
-const dataMssqlModel = new DataMSSQLModel();
-
-const dopaModel = new DopaModel();
 
 router.get('/state', async (req: Request, res: Response) => {
   try {
@@ -362,7 +360,11 @@ async function stepLK2(ctx: ProcessContext, logId: number, state: number): Promi
   });
 
   if (result.stopped) {
-    logMessage('SYS', 'หยุดตามเวลาที่กำหนด', 'orange');
+    if (result.reason === 'LK_403') {
+      logMessage('SYS', 'หยุดชั่วคราว: LK2 ตอบกลับ 403', 'orange');
+    } else {
+      logMessage('SYS', 'หยุดตามเวลาที่กำหนด', 'orange');
+    }
     return state;
   }
   if (!result.ok) {
@@ -392,24 +394,31 @@ async function retryUntilDone(opts: {
   runOnce: () => Promise<void>;
   delayMs?: number;
   shouldContinue?: () => boolean;
-}): Promise<{ ok: boolean; stopped: boolean }> {
+}): Promise<{ ok: boolean; stopped: boolean; reason?: string }> {
   for (let retry = 0; retry < opts.maxRetry; retry++) {
     if (opts.shouldContinue && !opts.shouldContinue()) {
-      return { ok: false, stopped: true };
+      return { ok: false, stopped: true, reason: 'SCHEDULE' };
     }
     const count = await opts.checkCount();
     if ((count?.[0]?.count ?? 0) <= 0) return { ok: true, stopped: false };
 
     if (retry > 0 && opts.delayMs && opts.delayMs > 0) {
       if (opts.shouldContinue && !opts.shouldContinue()) {
-        return { ok: false, stopped: true };
+        return { ok: false, stopped: true, reason: 'SCHEDULE' };
       }
       await sleep(opts.delayMs);
     }
     if (opts.shouldContinue && !opts.shouldContinue()) {
-      return { ok: false, stopped: true };
+      return { ok: false, stopped: true, reason: 'SCHEDULE' };
     }
-    await opts.runOnce();
+    try {
+      await opts.runOnce();
+    } catch (error) {
+      if (isStopError(error)) {
+        return { ok: false, stopped: true, reason: error.reason };
+      }
+      throw error;
+    }
   }
   // ครบ maxRetry แล้วยังไม่เสร็จ
   return { ok: false, stopped: false };
@@ -476,22 +485,22 @@ async function processEachRow<T>(
   onFail: (row: any, error: any) => Promise<void>,
   shouldContinue?: () => boolean,
   delayOnFailMs?: number
-): Promise<{ stopped: boolean }> {
+): Promise<{ stopped: boolean; reason?: string }> {
   for (const row of rows) {
     if (shouldContinue && !shouldContinue()) {
-      return { stopped: true };
+      return { stopped: true, reason: 'SCHEDULE' };
     }
     try {
       const result = await runner(row);
       await onSuccess(row, result);
     } catch (err) {
       if (isStopError(err)) {
-        return { stopped: true };
+        return { stopped: true, reason: err.reason };
       }
       await onFail(row, err);
       if (delayOnFailMs && delayOnFailMs > 0) {
         const ok = await sleepWithCheck(delayOnFailMs, shouldContinue);
-        if (!ok) return { stopped: true };
+        if (!ok) return { stopped: true, reason: 'SCHEDULE' };
       }
     }
   }
@@ -538,7 +547,7 @@ async function verifyWithDopa<T>(params: {
     rows,
     async (row) => {
       if (shouldContinue && !shouldContinue()) {
-        throw { stopped: true };
+        throw { stopped: true, reason: 'SCHEDULE' };
       }
       const r: any = await retry(() => callDopa(row), {
         maxRetries,
@@ -549,7 +558,7 @@ async function verifyWithDopa<T>(params: {
 
       if (!r.ok) throw r.error; // ให้ไป onFail
       if (shouldContinue && !shouldContinue()) {
-        throw { stopped: true };
+        throw { stopped: true, reason: 'SCHEDULE' };
       }
       return r.data;
     },
@@ -567,7 +576,9 @@ async function verifyWithDopa<T>(params: {
     shouldContinue,
     delayOnFailMs
   );
-  if (result.stopped) return;
+  if (result.stopped) {
+    throw { stopped: true, reason: result.reason };
+  }
 
   // await dataModel.setState(db, setStateDone);
 }

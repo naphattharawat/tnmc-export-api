@@ -144,6 +144,13 @@ export class DopaModel {
       try {
         res = await this.callCheckLK(data.cid, token[0].token, logMessage);
       } catch (error) {
+        const statusCode = Number((error as any)?.response?.status ?? (error as any)?.status ?? 0);
+        if (statusCode === 403) {
+          if (logMessage) {
+            logMessage('LK', 'checkLK returned 403, pause process.', 'orange');
+          }
+          throw { stopped: true, reason: 'LK_403' };
+        }
         if (logMessage) {
           logMessage('LK', `Error calling checkLK: ${formatError(error)}`, 'orange');
         }
@@ -156,6 +163,12 @@ export class DopaModel {
           if (r.serviceID == 1) {
             resStatus = r.responseStatus;
             const statusCode = Number(resStatus);
+            if (statusCode === 403) {
+              if (logMessage) {
+                logMessage('LK', 'checkLK responseStatus=403, pause process.', 'orange');
+              }
+              throw { stopped: true, reason: 'LK_403' };
+            }
             if (statusCode === 400 || statusCode === 404) {
               return { status: 'NOTFOUND' };
             }
