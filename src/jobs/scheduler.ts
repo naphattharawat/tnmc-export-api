@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import { DataModel } from '../models/data';
-import { ProcessContext, runProcess, isProcessRunning, setProcessRunning } from '../routes/process';
+import { ProcessContext, runProcess, isProcessRunning, setProcessRunning, getLastStopReason } from '../routes/process';
 
 const cron = require('node-cron');
 
@@ -112,6 +112,8 @@ export function startScheduler(baseCtx: { db: any; dbmssql: any; logMessage?: Pr
   const logMessage = baseCtx.logMessage ?? fallbackLogMessage;
   const lastRunByKey = new Map<string, string>();
   let tickRunning = false;
+  let lkPauseUntilDateKey: string | null = null;
+  let lkPauseLoggedDateKey: string | null = null;
 
   const tick = async () => {
     if (tickRunning) return;
@@ -124,6 +126,27 @@ export function startScheduler(baseCtx: { db: any; dbmssql: any; logMessage?: Pr
       const state = Number(stateRow?.[0]?.state ?? 0);
       const isDone = state === 8;
       const now = new Date();
+      const todayKey = makeDateKey(now);
+      const stopReason = getLastStopReason();
+
+      if (stopReason === 'LK_403' && !lkPauseUntilDateKey) {
+        const nextDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+        lkPauseUntilDateKey = makeDateKey(nextDay);
+      }
+
+      if (lkPauseUntilDateKey && todayKey < lkPauseUntilDateKey) {
+        if (lkPauseLoggedDateKey !== todayKey) {
+          logMessage('CRON', `Process paused by LK2 403. Skip auto trigger until ${lkPauseUntilDateKey}.`, 'orange');
+          lkPauseLoggedDateKey = todayKey;
+        }
+        return;
+      }
+
+      if (lkPauseUntilDateKey && todayKey >= lkPauseUntilDateKey) {
+        logMessage('CRON', 'Resume auto trigger after LK2 403 pause.', 'orange');
+        lkPauseUntilDateKey = null;
+        lkPauseLoggedDateKey = null;
+      }
 
       const normalizedRows = rows
         .map(normalizeRow)
@@ -148,7 +171,6 @@ export function startScheduler(baseCtx: { db: any; dbmssql: any; logMessage?: Pr
         if (isDone && !isStartDay) continue;
 
         const scheduleKey = makeScheduleKey(row);
-        const todayKey = makeDateKey(now);
         if (isDone && lastRunByKey.get(scheduleKey) === todayKey) continue;
 
         if (isProcessRunning()) {
@@ -172,6 +194,14 @@ export function startScheduler(baseCtx: { db: any; dbmssql: any; logMessage?: Pr
           shouldContinue,
           allowAlreadyRunning: true,
         });
+
+        const stopReasonAfterRun = getLastStopReason();
+        if (stopReasonAfterRun === 'LK_403') {
+          const nextDay = new Date();
+          nextDay.setDate(nextDay.getDate() + 1);
+          lkPauseUntilDateKey = makeDateKey(nextDay);
+          lkPauseLoggedDateKey = null;
+        }
 
         if (!result.ok) {
           logMessage('CRON', `Process error: ${result.state}`, 'red');

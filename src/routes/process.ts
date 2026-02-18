@@ -27,6 +27,7 @@ type StopReason = 'SCHEDULE' | 'LK_403' | null;
 let isProcessing = false;
 let lastStopReason: StopReason = null;
 export const isProcessRunning = () => isProcessing;
+export const getLastStopReason = () => lastStopReason;
 export const setProcessRunning = (value: boolean) => {
   isProcessing = value;
 };
