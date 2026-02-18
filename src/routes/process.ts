@@ -22,11 +22,16 @@ export type ProcessContext = {
   allowAlreadyRunning?: boolean;
 };
 export type ProcessResult = { ok: boolean; state: string; code: number };
+type StopReason = 'SCHEDULE' | 'LK_403' | null;
 
 let isProcessing = false;
+let lastStopReason: StopReason = null;
 export const isProcessRunning = () => isProcessing;
 export const setProcessRunning = (value: boolean) => {
   isProcessing = value;
+};
+const setLastStopReason = (reason: StopReason) => {
+  lastStopReason = reason;
 };
 
 const fallbackLogMessage = (taskId: string, message: string, color: LogColor = 'blue') => {
@@ -162,6 +167,10 @@ router.get('/state', async (req: Request, res: Response) => {
       statusText = 'done';
     } else if (isIdle) {
       statusText = 'idle';
+    } else if (lastStopReason === 'LK_403') {
+      statusText = 'paused_by_lk403';
+    } else if (lastStopReason === 'SCHEDULE') {
+      statusText = 'paused_by_schedule';
     } else if (scheduleStatus.exists && !scheduleStatus.isWithin) {
       statusText = 'paused_by_schedule';
     }
@@ -193,11 +202,13 @@ export async function runProcess(ctx: ProcessContext): Promise<ProcessResult> {
   }
 
   if (!canContinue(ctx)) {
+    setLastStopReason('SCHEDULE');
     stopProcessing();
     return { ok: true, state: 'Stopped by schedule window.', code: HttpStatus.OK };
   }
 
   isProcessing = true;
+  setLastStopReason(null);
   try {
     logMessage('SYS', 'เริ่มประมวลผลรายงาน', 'purple');
     const current = await getCurrentState(ctx);
@@ -217,6 +228,7 @@ export async function runProcess(ctx: ProcessContext): Promise<ProcessResult> {
     // 1,2
     state = await stepPullData(ctx, logId, state);
     if (!canContinue(ctx)) {
+      setLastStopReason('SCHEDULE');
       logMessage('SYS', 'หยุดตามเวลาที่กำหนด', 'orange');
       stopProcessing();
       return { ok: true, state: 'Stopped by schedule window.', code: HttpStatus.OK };
@@ -224,6 +236,7 @@ export async function runProcess(ctx: ProcessContext): Promise<ProcessResult> {
     // 3,4
     state = await stepCheckPop(ctx, logId, state);
     if (!canContinue(ctx)) {
+      setLastStopReason('SCHEDULE');
       logMessage('SYS', 'หยุดตามเวลาที่กำหนด', 'orange');
       stopProcessing();
       return { ok: true, state: 'Stopped by schedule window.', code: HttpStatus.OK };
@@ -231,6 +244,7 @@ export async function runProcess(ctx: ProcessContext): Promise<ProcessResult> {
     // 5
     state = await stapWaitLogin(ctx, logId, state);
     if (!canContinue(ctx)) {
+      setLastStopReason('SCHEDULE');
       logMessage('SYS', 'หยุดตามเวลาที่กำหนด', 'orange');
       stopProcessing();
       return { ok: true, state: 'Stopped by schedule window.', code: HttpStatus.OK };
@@ -238,6 +252,7 @@ export async function runProcess(ctx: ProcessContext): Promise<ProcessResult> {
     // 6,7
     state = await stepLK2(ctx, logId, state);
     if (!canContinue(ctx)) {
+      setLastStopReason('SCHEDULE');
       logMessage('SYS', 'หยุดตามเวลาที่กำหนด', 'orange');
       stopProcessing();
       return { ok: true, state: 'Stopped by schedule window.', code: HttpStatus.OK };
@@ -247,6 +262,7 @@ export async function runProcess(ctx: ProcessContext): Promise<ProcessResult> {
     state = await done(ctx, logId, state);
 
     if (state === 8) {
+      setLastStopReason(null);
       await exportReports(ctx.db, logId, logMessage);
     }
 
@@ -301,6 +317,7 @@ async function stepCheckPop(ctx: ProcessContext, logId: number, state: number): 
   });
 
   if (result.stopped) {
+    setLastStopReason('SCHEDULE');
     logMessage('SYS', 'หยุดตามเวลาที่กำหนด', 'orange');
     return state;
   }
@@ -325,6 +342,7 @@ async function stapWaitLogin(ctx: ProcessContext, logId: number, state: number):
   let pass = false;
   do {
     if (!canContinue(ctx)) {
+      setLastStopReason('SCHEDULE');
       logMessage('SYS', 'หยุดตามเวลาที่กำหนด', 'orange');
       return state;
     }
@@ -361,8 +379,10 @@ async function stepLK2(ctx: ProcessContext, logId: number, state: number): Promi
 
   if (result.stopped) {
     if (result.reason === 'LK_403') {
+      setLastStopReason('LK_403');
       logMessage('SYS', 'หยุดชั่วคราว: LK2 ตอบกลับ 403', 'orange');
     } else {
+      setLastStopReason('SCHEDULE');
       logMessage('SYS', 'หยุดตามเวลาที่กำหนด', 'orange');
     }
     return state;
