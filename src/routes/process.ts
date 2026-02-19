@@ -687,7 +687,7 @@ export async function verifyLK2(
       await dataModel.updateRowCheckLK(db, logDetailId);
       await dataModel.updateData(db, row.id, {
         status_lk: lkStatus == null ? 'PENDING' : lkStatus,
-        status: lkStatus == null ? 'PENDING' : +lkStatus == 1 ? 'DEATH' : +lkStatus == 0 ? 'ALIVE' : +lkStatus == 2 ? 'LOST' : lkStatus == 'NOTFOUND' ? 'NOTFOUND' : 'PENDING',
+        status: lkStatus == null ? 'PENDING' : +lkStatus == 1 ? 'DEATH' : +lkStatus == 0 ? 'ALIVE' : +lkStatus == 2 ? 'LOST' : lkStatus == 'NOTFOUND' ? 'NOTFOUND' : +lkStatus == 5 ? 'DISCHARGED' : 'PENDING',
         birth_date: lkDobIso ?? row.birth_date,
         // lk2_info: JSON.stringify(info),
         // lk2_updated_at: new Date(),
