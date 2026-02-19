@@ -105,15 +105,48 @@ const makeDateKey = (date: Date) => {
   return `${y}-${m}-${d}`;
 };
 
+const formatDateTime = (date: Date) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mm = String(date.getMinutes()).padStart(2, '0');
+  const ss = String(date.getSeconds()).padStart(2, '0');
+  return `${y}-${m}-${d} ${hh}:${mm}:${ss}`;
+};
+
 const makeScheduleKey = (row: NormalizedRow) =>
   `${row.dd}-${row.mm}-${row.timeParts.hour}:${row.timeParts.minute}:${row.timeParts.second}-${row.hour}`;
+
+const buildNextDayStart = (baseDate: Date, timeParts: TimeParts) =>
+  new Date(
+    baseDate.getFullYear(),
+    baseDate.getMonth(),
+    baseDate.getDate() + 1,
+    timeParts.hour,
+    timeParts.minute,
+    timeParts.second,
+    0
+  );
+
+const getNextDayStartFromRows = (rows: NormalizedRow[], baseDate: Date): Date | null => {
+  if (!rows.length) return null;
+  let candidate: Date | null = null;
+  for (const row of rows) {
+    const next = buildNextDayStart(baseDate, row.timeParts);
+    if (!candidate || next.getTime() < candidate.getTime()) {
+      candidate = next;
+    }
+  }
+  return candidate;
+};
 
 export function startScheduler(baseCtx: { db: any; dbmssql: any; logMessage?: ProcessContext['logMessage'] }) {
   const logMessage = baseCtx.logMessage ?? fallbackLogMessage;
   const lastRunByKey = new Map<string, string>();
   let tickRunning = false;
-  let lkPauseUntilDateKey: string | null = null;
-  let lkPauseLoggedDateKey: string | null = null;
+  let lkPauseUntilAt: Date | null = null;
+  let lkPauseLogged = false;
 
   const tick = async () => {
     if (tickRunning) return;
@@ -127,27 +160,6 @@ export function startScheduler(baseCtx: { db: any; dbmssql: any; logMessage?: Pr
       const isDone = state === 8;
       const now = new Date();
       const todayKey = makeDateKey(now);
-      const stopReason = getLastStopReason();
-
-      if (stopReason === 'LK_403' && !lkPauseUntilDateKey) {
-        const nextDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-        lkPauseUntilDateKey = makeDateKey(nextDay);
-      }
-
-      if (lkPauseUntilDateKey && todayKey < lkPauseUntilDateKey) {
-        if (lkPauseLoggedDateKey !== todayKey) {
-          logMessage('CRON', `Process paused by LK2 403. Skip auto trigger until ${lkPauseUntilDateKey}.`, 'orange');
-          lkPauseLoggedDateKey = todayKey;
-        }
-        return;
-      }
-
-      if (lkPauseUntilDateKey && todayKey >= lkPauseUntilDateKey) {
-        logMessage('CRON', 'Resume auto trigger after LK2 403 pause.', 'orange');
-        lkPauseUntilDateKey = null;
-        lkPauseLoggedDateKey = null;
-      }
-
       const normalizedRows = rows
         .map(normalizeRow)
         .filter((row): row is NormalizedRow => row !== null)
@@ -158,6 +170,26 @@ export function startScheduler(baseCtx: { db: any; dbmssql: any; logMessage?: Pr
           if (a.timeParts.minute !== b.timeParts.minute) return a.timeParts.minute - b.timeParts.minute;
           return a.timeParts.second - b.timeParts.second;
         });
+      const stopReason = getLastStopReason();
+
+      if (stopReason === 'LK_403' && !lkPauseUntilAt) {
+        lkPauseUntilAt = getNextDayStartFromRows(normalizedRows, now);
+        lkPauseLogged = false;
+      }
+
+      if (lkPauseUntilAt && now < lkPauseUntilAt) {
+        if (!lkPauseLogged) {
+          logMessage('CRON', `Process paused by LK2 403. Skip auto trigger until ${formatDateTime(lkPauseUntilAt)}.`, 'orange');
+          lkPauseLogged = true;
+        }
+        return;
+      }
+
+      if (lkPauseUntilAt && now >= lkPauseUntilAt) {
+        logMessage('CRON', 'Resume auto trigger after LK2 403 pause.', 'orange');
+        lkPauseUntilAt = null;
+        lkPauseLogged = false;
+      }
 
       for (const row of normalizedRows) {
         const startDate = new Date(now.getFullYear(), row.mm - 1, row.dd);
@@ -197,10 +229,8 @@ export function startScheduler(baseCtx: { db: any; dbmssql: any; logMessage?: Pr
 
         const stopReasonAfterRun = getLastStopReason();
         if (stopReasonAfterRun === 'LK_403') {
-          const nextDay = new Date();
-          nextDay.setDate(nextDay.getDate() + 1);
-          lkPauseUntilDateKey = makeDateKey(nextDay);
-          lkPauseLoggedDateKey = null;
+          lkPauseUntilAt = buildNextDayStart(now, row.timeParts);
+          lkPauseLogged = false;
         }
 
         if (!result.ok) {
